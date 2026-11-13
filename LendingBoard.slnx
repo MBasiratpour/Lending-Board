@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/LendingBoard.Api/LendingBoard.Api.csproj" />
+    <Project Path="backend/LendingBoard.Tests/LendingBoard.Tests.csproj" />
+  </Folder>
+</Solution>

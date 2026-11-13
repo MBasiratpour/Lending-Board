@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lending Board</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Lending Board</h1>
+    <p class="tagline">Borrow from your neighbours instead of buying.</p>
+    <div class="who">
+      <label for="member-select">I am</label>
+      <select id="member-select"></select>
+      <form id="member-form">
+        <input id="member-name" placeholder="New neighbour" aria-label="Name of new neighbour">
+        <button type="submit" class="secondary">Join</button>
+      </form>
+    </div>
+  </header>
+
+  <p id="message" role="alert" hidden></p>
+
+  <nav>
+    <button id="tab-board" class="tab active" type="button">Board</button>
+    <button id="tab-loans" class="tab" type="button">My loans</button>
+  </nav>
+
+  <main>
+    <section id="view-board">
+      <div id="items" class="cards"></div>
+
+      <h2>Offer an item</h2>
+      <form id="item-form" class="stack">
+        <input id="item-name" placeholder="What is it? e.g. Cordless drill" aria-label="Item name" required>
+        <input id="item-description" placeholder="Short description" aria-label="Description">
+        <select id="item-category" aria-label="Category">
+          <option>Tools</option>
+          <option>Kitchen</option>
+          <option>Garden</option>
+          <option>Transport</option>
+          <option>Other</option>
+        </select>
+        <button type="submit">Offer it</button>
+      </form>
+    </section>
+
+    <section id="view-loans" hidden>
+      <h2>Requests for my items</h2>
+      <div id="loans-lending" class="list"></div>
+      <h2>Things I asked for</h2>
+      <div id="loans-borrowing" class="list"></div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
