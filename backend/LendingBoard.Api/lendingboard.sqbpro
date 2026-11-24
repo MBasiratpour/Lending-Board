@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="lendingboard.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="0"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="3137"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="0" parent="0"/><expanded_item id="1" parent="1"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="Items" custom_title="0" dock_id="1" table="4,5:mainItems"/><dock_state state="000000ff00000000fd0000000100000002000002480000020bfc0100000001fb000000160064006f0063006b00420072006f00770073006500310100000000000002480000011900ffffff000002480000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="Items" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="29"/><column index="2" value="117"/><column index="3" value="195"/><column index="4" value="78"/><column index="5" value="59"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="SQL 1*">--1. All tables in the database
+SELECT name FROM sqlite_master WHERE type = 'table';
+
+--2. All members, items and loans as raw data
+SELECT * FROM Members;
+SELECT * FROM Items;
+SELECT * FROM Loans;
+
+</sql><sql name="SQL 2*">--3. Items with their owner's name (JOIN)
+SELECT i.Id, i.Name AS Item, i.Category, m.Name AS Owner
+FROM Items i
+JOIN Members m ON m.Id = i.OwnerId
+ORDER BY i.Name;
+
+--4. All loans, readable: item, borrower, owner, status as text
+SELECT l.Id,
+       i.Name  AS Item,
+       b.Name  AS Borrower,
+       o.Name  AS Owner,
+       CASE l.Status WHEN 0 THEN 'Requested' WHEN 1 THEN 'Approved'
+                     WHEN 2 THEN 'Declined'  WHEN 3 THEN 'Returned' END AS Status,
+       l.RequestedAt, l.DecidedAt, l.ReturnedAt
+FROM Loans l
+JOIN Items   i ON i.Id = l.ItemId
+JOIN Members b ON b.Id = l.BorrowerId
+JOIN Members o ON o.Id = i.OwnerId
+ORDER BY l.Id DESC;
+
+--5. Which items are blocked right now (IsActive: Requested or Approved)
+SELECT i.Name AS Item, l.Status
+FROM Loans l
+JOIN Items i ON i.Id = l.ItemId
+WHERE l.Status IN (0, 1);
+
+--6. Which items are free
+SELECT i.Name
+FROM Items i
+WHERE NOT EXISTS (
+  SELECT 1 FROM Loans l WHERE l.ItemId = i.Id AND l.Status IN (0, 1)
+);
+
+</sql><sql name="SQL 3*">--7. How many items each member offers (GROUP BY)
+SELECT m.Name, COUNT(i.Id) AS Items
+FROM Members m
+LEFT JOIN Items i ON i.OwnerId = m.Id
+GROUP BY m.Id
+ORDER BY Items DESC;
+
+--8. Number of loans per status
+SELECT Status, COUNT(*) AS Count FROM Loans GROUP BY Status;
+
+--9. Most borrowed items 
+SELECT i.Name, COUNT(*) AS TimesLent
+FROM Loans l
+JOIN Items i ON i.Id = l.ItemId
+WHERE l.Status IN (1, 3)
+GROUP BY i.Id
+ORDER BY TimesLent DESC;
+
+--10. Check the rules: has anyone ever borrowed their own item?
+SELECT l.Id
+FROM Loans l
+JOIN Items i ON i.Id = l.ItemId
+WHERE l.BorrowerId = i.OwnerId;
+</sql><current_tab id="0"/></tab_sql></sqlb_project>
