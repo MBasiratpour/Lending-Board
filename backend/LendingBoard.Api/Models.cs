@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 namespace LendingBoard.Api;
 
 /// <summary>A neighbour who can offer and borrow items.</summary>
@@ -49,8 +51,22 @@ public class Loan
     public DateTime? DecidedAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
 
+    /// <summary>The day the borrower promised to bring the item back. Set when the owner approves.</summary>
+    public DateTime? DueAt { get; set; }
+
     /// <summary>A loan blocks the item while it is waiting for an answer or out of the house.</summary>
     public bool IsActive => Status is LoanStatus.Requested or LoanStatus.Approved;
+
+    /// <summary>
+    /// The same rule as <see cref="IsActive"/>, written as an expression so that
+    /// Entity Framework can turn it into SQL (WHERE Status IN (0, 1)).
+    /// Use it in database queries: db.Loans.Where(Loan.Active)
+    /// </summary>
+    public static readonly Expression<Func<Loan, bool>> Active =
+        l => l.Status == LoanStatus.Requested || l.Status == LoanStatus.Approved;
+
+    /// <summary>The item is still out of the house after the agreed return date.</summary>
+    public bool IsOverdue(DateTime now) => Status == LoanStatus.Approved && DueAt < now;
 
     public static Loan Request(Item item, int borrowerId, DateTime now)
     {
@@ -67,12 +83,16 @@ public class Loan
         };
     }
 
-    public void Approve(int actingMemberId, DateTime now)
+    public void Approve(int actingMemberId, DateTime now, DateTime dueAt)
     {
         RequireOwner(actingMemberId);
         RequireStatus(LoanStatus.Requested, "Only an open request can be approved.");
+        if (dueAt <= now)
+            throw new RuleViolationException("The return date must be in the future.");
+
         Status = LoanStatus.Approved;
         DecidedAt = now;
+        DueAt = dueAt;
     }
 
     public void Decline(int actingMemberId, DateTime now)

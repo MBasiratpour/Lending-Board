@@ -95,14 +95,41 @@ document.getElementById("member-form").addEventListener("submit", (event) => {
 
 const statusLabels = { Available: "Available", Requested: "Requested", Approved: "On loan" };
 
+/** Builds the query string from the filter bar, e.g. "?search=drill&availableOnly=true". */
+function boardQuery() {
+  const params = new URLSearchParams();
+  const search = document.getElementById("filter-search").value.trim();
+  const category = document.getElementById("filter-category").value;
+  if (search) params.set("search", search);
+  if (category) params.set("category", category);
+  if (document.getElementById("filter-available").checked) params.set("availableOnly", "true");
+  const text = params.toString();
+  return text ? "?" + text : "";
+}
+
+/** Formats a date from the API as a short local date, e.g. "28 Nov". */
+function shortDate(value) {
+  return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** The default return date for the date picker: one week from today, as "YYYY-MM-DD". */
+function inOneWeek() {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return date.toISOString().slice(0, 10);
+}
+
 async function loadItems() {
-  const items = await api("/items");
+  const items = await api("/items" + boardQuery());
   const me = currentMemberId();
   const container = document.getElementById("items");
   container.replaceChildren();
 
   if (items.length === 0) {
-    container.append(el("p", "empty", "Nothing on the board yet. Offer the first item below."));
+    const filtered = boardQuery() !== "";
+    container.append(el("p", "empty", filtered
+      ? "No items match your filter."
+      : "Nothing on the board yet. Offer the first item below."));
   }
 
   for (const item of items) {
@@ -111,6 +138,8 @@ async function loadItems() {
     if (item.description) card.append(el("p", "", item.description));
     card.append(el("p", "meta", `${item.category} · from ${item.ownerId === me ? "you" : item.ownerName}`));
     card.append(el("span", "badge " + item.status.toLowerCase(), statusLabels[item.status]));
+    if (item.isOverdue) card.append(" ", el("span", "badge overdue", "Overdue"));
+    if (item.dueAt) card.append(el("p", "meta", `Back by ${shortDate(item.dueAt)}`));
 
     const actions = el("div", "actions");
     if (item.ownerId === me) {
@@ -137,6 +166,11 @@ document.getElementById("item-form").addEventListener("submit", (event) => {
   });
 });
 
+// The filter bar reloads the board whenever something changes.
+const filterForm = document.getElementById("filter-form");
+filterForm.addEventListener("input", () => run(async () => {}));
+filterForm.addEventListener("submit", (event) => event.preventDefault());
+
 // ---------- My loans ----------
 
 const loanLabels = { Requested: "Waiting for answer", Approved: "On loan", Declined: "Declined", Returned: "Returned" };
@@ -146,7 +180,9 @@ function loanRow(loan, text, actionButtons) {
   const info = el("div");
   info.append(el("strong", "", loan.itemName), el("div", "meta", text));
   const actions = el("div", "actions");
-  actions.append(el("span", "badge", loanLabels[loan.status]), ...actionButtons);
+  actions.append(el("span", "badge", loanLabels[loan.status]));
+  if (loan.isOverdue) actions.append(el("span", "badge overdue", "Overdue"));
+  actions.append(...actionButtons);
   row.append(info, actions);
   return row;
 }
@@ -165,14 +201,25 @@ async function loadLoans() {
     if (loan.ownerId === me) {
       const buttons = [];
       if (loan.status === "Requested") {
-        buttons.push(button("Approve", act("approve")), button("Decline", act("decline"), "secondary"));
+        // The owner picks the return date before approving.
+        const dueInput = el("input");
+        dueInput.type = "date";
+        dueInput.value = inOneWeek();
+        dueInput.setAttribute("aria-label", "Return date");
+        const approve = () => api(`/loans/${loan.id}/approve`, "POST", {
+          memberId: me,
+          dueAt: new Date(dueInput.value + "T23:59:59").toISOString(),
+        });
+        buttons.push(dueInput, button("Approve", approve), button("Decline", act("decline"), "secondary"));
       }
       if (loan.status === "Approved") {
         buttons.push(button("Got it back", act("return")));
       }
-      lending.append(loanRow(loan, `${loan.borrowerName} wants to borrow it`, buttons));
+      const due = loan.status === "Approved" && loan.dueAt ? ` · back by ${shortDate(loan.dueAt)}` : "";
+      lending.append(loanRow(loan, `${loan.borrowerName} wants to borrow it${due}`, buttons));
     } else {
-      borrowing.append(loanRow(loan, `from ${loan.ownerName}`, []));
+      const due = loan.status === "Approved" && loan.dueAt ? ` · bring it back by ${shortDate(loan.dueAt)}` : "";
+      borrowing.append(loanRow(loan, `from ${loan.ownerName}${due}`, []));
     }
   }
 

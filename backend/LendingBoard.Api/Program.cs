@@ -65,12 +65,23 @@ app.MapPost("/api/members", async (NewMember input, LendingDb db) =>
 
 // ---------- Items ----------
 
-app.MapGet("/api/items", async (LendingDb db) =>
+// Board. Optional filters: ?search=drill&category=Tools&availableOnly=true
+app.MapGet("/api/items", async (string? search, string? category, bool? availableOnly, LendingDb db) =>
 {
-    var items = await db.Items.Include(i => i.Owner).OrderBy(i => i.Name).ToListAsync();
-    var activeLoans = (await db.Loans.ToListAsync()).Where(l => l.IsActive).ToList();
+    var query = db.Items.Include(i => i.Owner).AsQueryable();
 
-    return items.Select(item =>
+    if (!string.IsNullOrWhiteSpace(search))
+        query = query.Where(i => EF.Functions.Like(i.Name, $"%{search.Trim()}%"));
+    if (!string.IsNullOrWhiteSpace(category))
+        query = query.Where(i => i.Category == category);
+
+    var items = await query.OrderBy(i => i.Name).ToListAsync();
+
+    // Only the active loans are loaded, and the database does the filtering.
+    var activeLoans = await db.Loans.Where(Loan.Active).ToListAsync();
+    var now = DateTime.UtcNow;
+
+    var board = items.Select(item =>
     {
         var loan = activeLoans.FirstOrDefault(l => l.ItemId == item.Id);
         return new
@@ -82,9 +93,13 @@ app.MapGet("/api/items", async (LendingDb db) =>
             item.OwnerId,
             OwnerName = item.Owner!.Name,
             // "Available", "Requested" or "Approved" (= on loan)
-            Status = loan is null ? "Available" : loan.Status.ToString()
+            Status = loan is null ? "Available" : loan.Status.ToString(),
+            DueAt = loan?.DueAt,
+            IsOverdue = loan?.IsOverdue(now) ?? false
         };
     });
+
+    return availableOnly == true ? board.Where(i => i.Status == "Available") : board;
 });
 
 app.MapPost("/api/items", async (NewItem input, LendingDb db) =>
@@ -115,11 +130,10 @@ app.MapDelete("/api/items/{id:int}", async (int id, int memberId, LendingDb db) 
     if (item.OwnerId != memberId)
         throw new RuleViolationException("Only the owner can remove an item.");
 
-    var loans = await db.Loans.Where(l => l.ItemId == id).ToListAsync();
-    if (loans.Any(l => l.IsActive))
+    if (await db.Loans.Where(Loan.Active).AnyAsync(l => l.ItemId == id))
         throw new RuleViolationException("This item has an open request or is on loan.");
 
-    db.Loans.RemoveRange(loans);
+    db.Loans.RemoveRange(db.Loans.Where(l => l.ItemId == id));
     db.Items.Remove(item);
     await db.SaveChangesAsync();
     return Results.NoContent();
@@ -134,8 +148,7 @@ app.MapPost("/api/items/{id:int}/loans", async (int id, ActingMember input, Lend
     if (await db.Members.FindAsync(input.MemberId) is null)
         throw new RuleViolationException("Unknown member.");
 
-    var loansOfItem = await db.Loans.Where(l => l.ItemId == id).ToListAsync();
-    if (loansOfItem.Any(l => l.IsActive))
+    if (await db.Loans.Where(Loan.Active).AnyAsync(l => l.ItemId == id))
         throw new RuleViolationException("This item is not available right now.");
 
     var loan = Loan.Request(item, input.MemberId, DateTime.UtcNow);
@@ -154,6 +167,7 @@ app.MapGet("/api/loans", async (int memberId, LendingDb db) =>
         .OrderByDescending(l => l.Id)
         .ToListAsync();
 
+    var now = DateTime.UtcNow;
     return loans.Select(l => new
     {
         l.Id,
@@ -166,41 +180,49 @@ app.MapGet("/api/loans", async (int memberId, LendingDb db) =>
         l.Status,
         l.RequestedAt,
         l.DecidedAt,
-        l.ReturnedAt
+        l.ReturnedAt,
+        l.DueAt,
+        IsOverdue = l.IsOverdue(now)
     });
 });
 
-app.MapPost("/api/loans/{id:int}/approve", async (int id, ActingMember input, LendingDb db) =>
-{
-    var loan = await db.Loans.Include(l => l.Item).FirstOrDefaultAsync(l => l.Id == id);
-    if (loan is null) return Results.NotFound();
-    loan.Approve(input.MemberId, DateTime.UtcNow);
-    await db.SaveChangesAsync();
-    return Results.NoContent();
-});
+// Approve, decline and return all follow the same steps:
+// load the loan -> 404 if missing -> change it -> save -> 204.
+// Only the middle step differs, so it is passed in as `change`.
+// Without a return date, the borrower gets one week.
+app.MapPost("/api/loans/{id:int}/approve", (int id, ApproveLoan input, LendingDb db) =>
+    ChangeLoan(id, input.MemberId, db,
+        (loan, memberId, now) => loan.Approve(memberId, now, input.DueAt ?? now.AddDays(7))));
 
-app.MapPost("/api/loans/{id:int}/decline", async (int id, ActingMember input, LendingDb db) =>
-{
-    var loan = await db.Loans.Include(l => l.Item).FirstOrDefaultAsync(l => l.Id == id);
-    if (loan is null) return Results.NotFound();
-    loan.Decline(input.MemberId, DateTime.UtcNow);
-    await db.SaveChangesAsync();
-    return Results.NoContent();
-});
+app.MapPost("/api/loans/{id:int}/decline", (int id, ActingMember input, LendingDb db) =>
+    ChangeLoan(id, input.MemberId, db, (loan, memberId, now) => loan.Decline(memberId, now)));
 
-app.MapPost("/api/loans/{id:int}/return", async (int id, ActingMember input, LendingDb db) =>
-{
-    var loan = await db.Loans.Include(l => l.Item).FirstOrDefaultAsync(l => l.Id == id);
-    if (loan is null) return Results.NotFound();
-    loan.MarkReturned(input.MemberId, DateTime.UtcNow);
-    await db.SaveChangesAsync();
-    return Results.NoContent();
-});
+app.MapPost("/api/loans/{id:int}/return", (int id, ActingMember input, LendingDb db) =>
+    ChangeLoan(id, input.MemberId, db, (loan, memberId, now) => loan.MarkReturned(memberId, now)));
 
 app.Run();
+
+// ---------- Shared endpoint logic ----------
+
+// Loads a loan with its item, applies one change to it and saves.
+// The lending rules themselves stay in the Loan class.
+static async Task<IResult> ChangeLoan(
+    int id, int memberId, LendingDb db, Action<Loan, int, DateTime> change)
+{
+    var loan = await db.Loans.Include(l => l.Item).FirstOrDefaultAsync(l => l.Id == id);
+    if (loan is null) return Results.NotFound();
+
+    change(loan, memberId, DateTime.UtcNow);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}
 
 // ---------- Request bodies ----------
 
 record NewMember(string? Name);
 record NewItem(string? Name, string? Description, string? Category, int OwnerId);
 record ActingMember(int MemberId);
+record ApproveLoan(int MemberId, DateTime? DueAt);
+
+// Lets the integration tests start the API (WebApplicationFactory<Program>).
+public partial class Program { }

@@ -82,12 +82,17 @@ nav { display: flex; gap: 8px; margin: 24px 0 16px; border-bottom: 1px solid var
   font-size: 0.85rem;
 }
 .badge.available { border-color: var(--accent); color: var(--accent); }
+.badge.overdue { border-color: var(--warn-text); background: var(--warn-bg); color: var(--warn-text); font-weight: 600; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.filters input[type="search"] { flex: 1 1 200px; }
+.check { display: flex; gap: 6px; align-items: center; color: var(--muted); }
 
 .card .actions, .row .actions { display: flex; gap: 8px; margin-top: 10px; }
 
 .list { display: grid; gap: 8px; }
 .row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
-.row .actions { margin-top: 0; }
+.row .actions { margin-top: 0; align-items: center; }
 
 .stack { display: grid; gap: 8px; max-width: 420px; }
 .empty { color: var(--muted); }

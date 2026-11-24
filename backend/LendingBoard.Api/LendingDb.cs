@@ -25,5 +25,15 @@ public class LendingDb(DbContextOptions<LendingDb> options) : DbContext(options)
             new Item { Name = "Cargo bike", Description = "Carries up to 80 kg", Category = "Transport", Owner = cem });
 
         SaveChanges();
+
+        // One loan that is already overdue, so the demo can show the red "Overdue" badge:
+        // Ben borrowed Anna's drill 10 days ago and should have returned it 2 days ago.
+        var now = DateTime.UtcNow;
+        var drill = Items.Single(i => i.Name == "Cordless drill");
+        var loan = Loan.Request(drill, ben.Id, now.AddDays(-10));
+        loan.Approve(anna.Id, now.AddDays(-9), dueAt: now.AddDays(-2));
+        Loans.Add(loan);
+
+        SaveChanges();
     }
 }

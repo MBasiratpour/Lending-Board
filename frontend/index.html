@@ -29,6 +29,19 @@
 
   <main>
     <section id="view-board">
+      <form id="filter-form" class="filters" role="search">
+        <input id="filter-search" type="search" placeholder="Search, e.g. drill" aria-label="Search items">
+        <select id="filter-category" aria-label="Filter by category">
+          <option value="">All categories</option>
+          <option>Tools</option>
+          <option>Kitchen</option>
+          <option>Garden</option>
+          <option>Transport</option>
+          <option>Other</option>
+        </select>
+        <label class="check"><input id="filter-available" type="checkbox"> Only available</label>
+      </form>
+
       <div id="items" class="cards"></div>
 
       <h2>Offer an item</h2>
