@@ -57,6 +57,8 @@ public class Loan
     /// <summary>A loan blocks the item while it is waiting for an answer or out of the house.</summary>
     public bool IsActive => Status is LoanStatus.Requested or LoanStatus.Approved;
 
+
+
     /// <summary>
     /// The same rule as <see cref="IsActive"/>, written as an expression so that
     /// Entity Framework can turn it into SQL (WHERE Status IN (0, 1)).
